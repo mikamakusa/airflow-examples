@@ -22,12 +22,12 @@ def grab_artifact_from_jenkins(url):
     response = jenkins_server.jenkins_open(request)
     return response
 
-@dag(default_args={
+@dag(DAG_ID, default_args={
         "retries": 1,
         "concurrency": 8,
         "max_active_runs": 8,
     },
     start_date=datetime(2017, 6, 1),
-    schedule=None)
+    schedule="@once")
 def jenkins_job_trigger_dag():
     grab_artifact_from_jenkins()
