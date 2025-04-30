@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from requests import Request
-from airflow.decorators import task, dag
 from airflow import DAG
 from airflow.decorators import task
 from airflow.providers.jenkins.hooks.jenkins import JenkinsHook
@@ -13,21 +12,27 @@ ENV_ID = os.environ.get("SYSTEM_TESTS_ENV_ID")
 ARTIFACT_URL = os.environ.get("ARTIFACT_URL")
 DAG_ID = "jenkins"
 
-@task
-def grab_artifact_from_jenkins(url):
-    hook = JenkinsHook(JENKINS_CONNECTION_ID)
-    jenkins_server = hook.get_jenkins_server()
-    url += ARTIFACT_URL
-    request = Request(method="GET", url=url)
-    response = jenkins_server.jenkins_open(request)
-    return response
-
-@dag(DAG_ID, default_args={
+default_args={
         "retries": 1,
         "concurrency": 8,
         "max_active_runs": 8,
-    },
-    start_date=datetime(2017, 6, 1),
-    schedule="@once")
-def jenkins_job_trigger_dag():
-    grab_artifact_from_jenkins()
+    }
+
+with DAG(DAG_ID, default_args, start_date=datetime(2017, 6, 1), schedule="@once") as dag:
+    job_trigger = JenkinsJobTriggerOperator(
+        task_id="trigger_job",
+        job_name="generate-merlin-config",
+        parameters={"first_parameter": "a_value", "second_parameter": "18"},
+        jenkins_connection_id=JENKINS_CONNECTION_ID
+    )
+
+    @task
+    def grab_artifact_from_jenkins(url):
+        hook = JenkinsHook(JENKINS_CONNECTION_ID)
+        jenkins_server = hook.get_jenkins_server()
+        url += "artifact/myartifact.xml"
+        request = Request(method="GET", url=url)
+        response = jenkins_server.jenkins_open(request)
+        return response
+
+    grab_artifact_from_jenkins(job_trigger.output)

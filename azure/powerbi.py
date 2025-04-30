@@ -1,8 +1,7 @@
 from __future__ import annotations
-
 import os
 from datetime import datetime
-from airflow.decorators import task,dag
+from airflow.models.dag import DAG
 from airflow.providers.microsoft.azure.operators.msgraph import MSGraphAsyncOperator
 from airflow.providers.microsoft.azure.sensors.msgraph import MSGraphSensor
 
@@ -12,18 +11,16 @@ DATASET_ID = os.environ.get("DATASET_ID")
 URL_WORKSPACE = os.environ.get("URL_WORKSPACE")
 URL_INFO = os.environ.get("URL_INFO")
 
-@task
-def workspaces():
-    return MSGraphAsyncOperator(
+with DAG(DAG_ID,start_date=datetime(2021, 1, 1), schedule="@once", tags=["example"]) as dag:
+    workspaces = MSGraphAsyncOperator(
         task_id="workspaces",
         conn_id="powerbi",
         url=URL_WORKSPACE,
-        result_processor=lambda context, response: list(map(lambda workspace: workspace["id"], response)),  # type: ignore[typeddict-item, index]
+        result_processor=lambda context, response: list(map(lambda workspace: workspace["id"], response)),
+        # type: ignore[typeddict-item, index]
     )
 
-@task
-def get_workspace_info():
-    return MSGraphAsyncOperator(
+    get_workspace_info = MSGraphAsyncOperator(
         task_id="get_workspace_info",
         conn_id="powerbi",
         url=URL_INFO,
@@ -39,18 +36,14 @@ def get_workspace_info():
         result_processor=lambda context, response: {"scanId": response["id"]},  # type: ignore[typeddict-item]
     )
 
-@task
-def check_workspaces_status():
-    return MSGraphSensor.partial(
+    check_workspaces_status = MSGraphSensor.partial(
         task_id="check_workspaces_status",
         conn_id="powerbi_api",
         url="myorg/admin/workspaces/scanStatus/{scanId}",
         timeout=350.0,
     ).expand(path_parameters=get_workspace_info.output)
 
-@task
-def refresh_dataset():
-    return MSGraphAsyncOperator(
+    refresh_dataset = MSGraphAsyncOperator(
         task_id="refresh_dataset",
         conn_id="powerbi_api",
         url="myorg/groups/{workspaceId}/datasets/{datasetId}/refreshes",
@@ -63,9 +56,7 @@ def refresh_dataset():
         result_processor=lambda context, response: response["requestid"],  # type: ignore[typeddict-item]
     )
 
-@task
-def refresh_dataset_history():
-    return MSGraphSensor(
+    refresh_dataset_history = MSGraphSensor(
         task_id="refresh_dataset_history",
         conn_id="powerbi_api",
         url="myorg/groups/{workspaceId}/datasets/{datasetId}/refreshes/{refreshId}",
@@ -78,7 +69,5 @@ def refresh_dataset_history():
         event_processor=lambda context, event: event["status"] == "Completed",  # type: ignore[typeddict-item]
     )
 
-@dag(DAG_ID,start_date=datetime(2021, 1, 1), schedule="@once", tags=["example"])
-def powerbi():
-    workspaces() >> get_workspace_info() >> check_workspaces_status()
-    refresh_dataset() >> refresh_dataset_history()
+    workspaces >> get_workspace_info >> check_workspaces_status
+    refresh_dataset >> refresh_dataset_history
